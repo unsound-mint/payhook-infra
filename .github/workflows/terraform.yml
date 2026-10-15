@@ -48,7 +48,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: security scan (trivy)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           severity: HIGH,CRITICAL
