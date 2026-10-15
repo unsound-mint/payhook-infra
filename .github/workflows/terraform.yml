@@ -1,0 +1,109 @@
+name: terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply or destroy the dev environment"
+        type: choice
+        options: [apply, destroy]
+        default: apply
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "1"
+  TF_DIR: envs/dev
+
+jobs:
+  # Runs everywhere, no AWS account needed.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+      - run: terraform fmt -check -recursive
+      - name: validate
+        run: |
+          for d in bootstrap envs/dev; do
+            terraform -chdir=$d init -backend=false -input=false
+            terraform -chdir=$d validate
+          done
+      - name: unit tests (mocked AWS provider)
+        run: |
+          for m in network database app; do
+            terraform -chdir=modules/$m init -input=false
+            terraform -chdir=modules/$m test
+          done
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.59.1
+      - run: tflint --init && tflint --recursive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: security scan (trivy)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: config
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
+          exit-code: "1"
+
+  # Plan against the real account. Only runs once the AWS_ROLE_ARN and
+  # TF_STATE_BUCKET repository variables are set (see README: bootstrap).
+  plan:
+    needs: checks
+    if: vars.AWS_ROLE_ARN != '' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for AWS, no stored keys
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
+      - run: terraform -chdir=$TF_DIR init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      - run: terraform -chdir=$TF_DIR plan -input=false -lock-timeout=5m -no-color | tee plan.txt
+      - run: |
+          {
+            echo '### terraform plan (dev)'
+            echo '```'
+            grep -E '^(Plan:|No changes)' plan.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Manual apply/destroy, gated by the "production" environment (required reviewers).
+  deploy:
+    needs: checks
+    if: vars.AWS_ROLE_ARN != '' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency: terraform-dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
+      - run: terraform -chdir=$TF_DIR init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      - if: inputs.action == 'apply'
+        run: terraform -chdir=$TF_DIR apply -input=false -auto-approve -lock-timeout=5m
+      - if: inputs.action == 'destroy'
+        run: terraform -chdir=$TF_DIR destroy -input=false -auto-approve -lock-timeout=5m

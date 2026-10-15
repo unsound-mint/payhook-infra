@@ -1,0 +1,69 @@
+#!/bin/bash
+# Boot script for payhook app instances (Amazon Linux 2023).
+set -euo pipefail
+
+dnf install -y docker jq
+systemctl enable --now docker
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+  "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-x86_64"
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# Secrets come from Secrets Manager / SSM at boot; nothing secret is baked into the AMI or user data.
+DB_PASSWORD=$(aws secretsmanager get-secret-value --region ${region} --secret-id '${db_secret_arn}' \
+  --query SecretString --output text | jq -r .password)
+DB_PASSWORD_URI=$(jq -rn --arg p "$DB_PASSWORD" '$p|@uri')
+WEBHOOK_SECRETS=$(aws ssm get-parameter --region ${region} --with-decryption --name '${webhook_secrets_ssm}' --query Parameter.Value --output text)
+CALLBACK_SECRET=$(aws ssm get-parameter --region ${region} --with-decryption --name '${callback_secret_ssm}' --query Parameter.Value --output text)
+
+install -d -m 700 /opt/payhook
+umask 077
+cat > /opt/payhook/.env <<ENV
+DATABASE_URL=postgres://${db_user}:$${DB_PASSWORD_URI}@${db_host}:${db_port}/${db_name}?sslmode=require
+NATS_URL=nats://nats:4222
+PAYHOOK_WEBHOOK_SECRETS=$${WEBHOOK_SECRETS}
+PAYHOOK_CALLBACK_SECRET=$${CALLBACK_SECRET}
+ENV
+
+INSTANCE_ID=$(TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60') && \
+  curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+
+cat > /opt/payhook/compose.yml <<YAML
+x-logging: &logging
+  driver: awslogs
+  options:
+    awslogs-region: ${region}
+    awslogs-group: ${log_group}
+    tag: "$${INSTANCE_ID}/{{.Name}}"
+x-app: &app
+  image: ${image}
+  restart: always
+  env_file: .env
+  logging: *logging
+  depends_on: [nats]
+services:
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-sd", "/data"]
+    restart: always
+    volumes: [nats:/data]
+    logging: *logging
+  api:
+    <<: *app
+    command: ["api"]
+    ports: ["8080:8080"]
+    stop_grace_period: 20s
+  relay:
+    <<: *app
+    command: ["relay"]
+  worker:
+    <<: *app
+    command: ["worker"]
+    stop_grace_period: 30s
+volumes:
+  nats: {}
+YAML
+
+cd /opt/payhook
+docker compose pull
+docker compose up -d

@@ -1,0 +1,20 @@
+# Accepted findings, each a deliberate trade-off documented in the README.
+
+# The ALB is the public entry point of an internet-facing API.
+AVD-AWS-0053
+
+# Plain HTTP is only served when no ACM certificate is configured (demo mode);
+# with certificate_arn set, HTTP redirects to HTTPS (TLS 1.3 policy).
+AVD-AWS-0054
+
+# HTTPS egress to anywhere is required: merchant callback URLs are arbitrary hosts.
+aws-vpc-no-public-egress-sgr
+
+# No NAT gateway (cost): app instances get public IPs but accept traffic only
+# from the ALB security group and have no SSH (SSM Session Manager instead).
+aws-vpc-no-public-ingress-sgr
+
+# AWS-managed keys instead of customer-managed KMS keys ($1/key/month each);
+# ALB access-log delivery only supports SSE-S3 anyway.
+AVD-AWS-0132
+AVD-AWS-0136
