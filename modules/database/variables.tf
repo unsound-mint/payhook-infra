@@ -1,32 +1,39 @@
 variable "name" {
-  type = string
+  description = "Prefix for resource names."
+  type        = string
 }
 
 variable "vpc_id" {
-  type = string
+  description = "VPC for the database security group."
+  type        = string
 }
 
 variable "subnet_ids" {
-  type = list(string)
+  description = "Private subnets (at least two AZs) for the DB subnet group."
+  type        = list(string)
 }
 
 variable "app_security_group_id" {
-  type = string
+  description = "Security group allowed to reach PostgreSQL."
+  type        = string
 }
 
 variable "instance_class" {
-  type    = string
-  default = "db.t4g.micro"
+  description = "RDS instance class."
+  type        = string
+  default     = "db.t4g.micro"
 }
 
 variable "multi_az" {
-  type    = bool
-  default = false
+  description = "Standby replica in a second AZ. Off by default to keep dev cheap; turn it on for production."
+  type        = bool
+  default     = false
 }
 
 variable "backup_retention_days" {
-  type    = number
-  default = 7
+  description = "Days of automated backups to keep."
+  type        = number
+  default     = 7
 }
 
 variable "deletion_protection" {

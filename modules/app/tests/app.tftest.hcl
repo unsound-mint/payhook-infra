@@ -155,3 +155,23 @@ run "pinned_ami_skips_the_ssm_lookup" {
     error_message = "a pinned ami_id must be used as is"
   }
 }
+
+run "desired_capacity_must_fit_the_bounds" {
+  command = plan
+  variables {
+    min_size         = 2
+    max_size         = 3
+    desired_capacity = 1
+  }
+  expect_failures = [var.desired_capacity]
+}
+
+run "min_size_cannot_exceed_max_size" {
+  command = plan
+  variables {
+    min_size         = 4
+    max_size         = 3
+    desired_capacity = 3
+  }
+  expect_failures = [var.min_size]
+}

@@ -36,3 +36,11 @@ run "rejects_single_az" {
   }
   expect_failures = [var.az_count]
 }
+
+run "invalid_cidr_rejected" {
+  command = plan
+  variables {
+    cidr_block = "10.20.0.0"
+  }
+  expect_failures = [var.cidr_block]
+}

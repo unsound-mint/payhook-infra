@@ -1,6 +1,7 @@
 variable "region" {
-  type    = string
-  default = "eu-central-1"
+  description = "Region for the state bucket and IAM resources."
+  type        = string
+  default     = "eu-central-1"
 }
 
 variable "github_repo" {

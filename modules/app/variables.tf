@@ -9,20 +9,29 @@ variable "environment" {
 }
 
 variable "vpc_id" {
-  type = string
+  description = "VPC for the security groups and target group."
+  type        = string
 }
 
 variable "vpc_cidr" {
-  type = string
+  description = "VPC CIDR; the only range the instances may reach on 5432."
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.vpc_cidr, 0))
+    error_message = "vpc_cidr must be a valid IPv4 CIDR like 10.20.0.0/16."
+  }
 }
 
 variable "public_subnet_ids" {
-  type = list(string)
+  description = "Subnets for the ALB and the instances (at least two AZs)."
+  type        = list(string)
 }
 
 variable "image_repository" {
-  type    = string
-  default = "ghcr.io/unsound-mint/payhook"
+  description = "Container image repository (without the tag)."
+  type        = string
+  default     = "ghcr.io/unsound-mint/payhook"
 }
 
 variable "image_tag" {
@@ -48,23 +57,37 @@ variable "ami_id" {
 }
 
 variable "instance_type" {
-  type    = string
-  default = "t3.small"
+  description = "EC2 instance type."
+  type        = string
+  default     = "t3.small"
 }
 
 variable "min_size" {
-  type    = number
-  default = 1
+  description = "Minimum number of instances."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.min_size >= 1 && var.min_size <= var.max_size
+    error_message = "min_size must be at least 1 and no larger than max_size."
+  }
 }
 
 variable "max_size" {
-  type    = number
-  default = 3
+  description = "Maximum number of instances."
+  type        = number
+  default     = 3
 }
 
 variable "desired_capacity" {
-  type    = number
-  default = 1
+  description = "Initial number of instances; target tracking changes it afterwards."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.desired_capacity >= var.min_size && var.desired_capacity <= var.max_size
+    error_message = "desired_capacity must be between min_size and max_size."
+  }
 }
 
 variable "certificate_arn" {
@@ -85,8 +108,9 @@ variable "providers_list" {
 }
 
 variable "log_retention_days" {
-  type    = number
-  default = 14
+  description = "Days to keep application logs in CloudWatch (must be a value CloudWatch accepts, e.g. 7, 14, 30)."
+  type        = number
+  default     = 14
 }
 
 variable "compose_version" {
@@ -107,21 +131,26 @@ variable "compose_sha256" {
 }
 
 variable "db_address" {
-  type = string
+  description = "Database host name."
+  type        = string
 }
 
 variable "db_port" {
-  type = number
+  description = "Database port."
+  type        = number
 }
 
 variable "db_name" {
-  type = string
+  description = "Database name."
+  type        = string
 }
 
 variable "db_username" {
-  type = string
+  description = "Database user."
+  type        = string
 }
 
 variable "db_secret_arn" {
-  type = string
+  description = "Secrets Manager secret holding the database password (JSON with a password key)."
+  type        = string
 }
