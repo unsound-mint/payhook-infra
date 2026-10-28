@@ -236,13 +236,18 @@ resource "aws_autoscaling_group" "app" {
     version = aws_launch_template.app.latest_version
   }
 
-  # A new launch template version (new image tag, new user data) rolls the
-  # instances one by one while keeping at least 50% healthy.
+  # A new launch template version (new image tag, new user data) replaces the
+  # instances. At 100% minimum healthy with a 200% ceiling the group launches
+  # replacements before terminating old instances, so a one-instance group
+  # doesn't go down during a deploy. If the replacements fail their health
+  # checks the refresh is rolled back to the previous launch template version.
   instance_refresh {
     strategy = "Rolling"
     preferences {
-      min_healthy_percentage = 50
+      min_healthy_percentage = 100
+      max_healthy_percentage = 200
       instance_warmup        = 120
+      auto_rollback          = true
     }
   }
 

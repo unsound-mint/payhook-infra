@@ -59,6 +59,15 @@ run "hardened_instances" {
   }
 }
 
+run "deploys_start_replacements_first" {
+  command = plan
+
+  assert {
+    condition     = aws_autoscaling_group.app.instance_refresh[0].preferences[0].min_healthy_percentage == 100 && aws_autoscaling_group.app.instance_refresh[0].preferences[0].auto_rollback == true
+    error_message = "instance refresh must keep full capacity and roll back on failure, or a one-instance deploy is downtime"
+  }
+}
+
 run "secrets_not_in_user_data" {
   command = plan
 
