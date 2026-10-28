@@ -55,11 +55,12 @@ jobs:
           trivyignores: .trivyignore
           exit-code: "1"
 
-  # Plan against the real account. Only runs once the AWS_ROLE_ARN and
-  # TF_STATE_BUCKET repository variables are set (see README: bootstrap).
+  # Plan against the real account with the read-only role (a pull request can
+  # edit this file, so it must not be able to assume anything that writes). Only
+  # runs once AWS_PLAN_ROLE_ARN and TF_STATE_BUCKET are set (see README: bootstrap).
   plan:
     needs: checks
-    if: vars.AWS_ROLE_ARN != '' && github.event_name != 'workflow_dispatch'
+    if: vars.AWS_PLAN_ROLE_ARN != '' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,7 +72,7 @@ jobs:
           terraform_version: 1.16.5
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: eu-central-1
       - run: terraform -chdir=$TF_DIR init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
       - run: terraform -chdir=$TF_DIR plan -input=false -lock-timeout=5m -no-color | tee plan.txt
@@ -84,6 +85,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Manual apply/destroy, gated by the "production" environment (required reviewers).
+  # Only this job's OIDC subject (environment:production) can assume the apply role.
   deploy:
     needs: checks
     if: vars.AWS_ROLE_ARN != '' && github.event_name == 'workflow_dispatch'

@@ -37,7 +37,7 @@ envs/dev                the environment that wires the modules together
 ## Decisions
 
 - **State:** S3 with versioning, KMS encryption and TLS-only access, locked with Terraform's native S3 lockfile (`use_lockfile`, no DynamoDB table).
-- **CI has no AWS keys.** GitHub Actions assumes an IAM role through OIDC. The trust policy only accepts this repository's pull requests, `main`, and the `production` environment. The role gets PowerUserAccess plus IAM rights limited to roles under the `/payhook/` path.
+- **CI has no AWS keys, and two roles.** GitHub Actions assumes an IAM role through OIDC. The plan role (`AWS_PLAN_ROLE_ARN`) trusts this repository's pull requests and `main` and only has ReadOnlyAccess plus the state lock file, because anyone who can open a pull request can edit the workflow. The apply role (`AWS_ROLE_ARN`) trusts only the `production` environment, so every apply passes the required-reviewers gate. It has PowerUserAccess plus IAM rights limited to roles under the `/payhook/` path, and it can attach only the managed policies on an allowlist (currently just `AmazonSSMManagedInstanceCore`), not `AdministratorAccess`. It can still write inline policies on `/payhook/` roles; a permissions boundary would close that and is not set up yet.
 - **Secrets never touch Terraform state or user data.** RDS generates the database password into Secrets Manager (`manage_master_user_password`). Webhook signing secrets go into SSM SecureString parameters. Instances read both at boot using a narrowly scoped instance role.
 - **No SSH.** Instances are reached through SSM Session Manager. IMDSv2 is required, and root volumes are encrypted.
 - **Network:** the database lives in private subnets with no internet route and accepts traffic only from the app security group. App instances accept traffic only from the ALB. Outbound traffic is limited to HTTPS anywhere (image pulls, AWS APIs, merchant callbacks) and PostgreSQL inside the VPC.
@@ -70,7 +70,8 @@ When the AWS variables are configured, pull requests also get a `terraform plan`
 ```sh
 # 1. one-time bootstrap with admin credentials (local state)
 cd bootstrap && terraform init && terraform apply
-#    -> set repository variables AWS_ROLE_ARN and TF_STATE_BUCKET from the outputs
+#    -> set repository variables AWS_PLAN_ROLE_ARN, AWS_ROLE_ARN and TF_STATE_BUCKET from the outputs
+#       (github_plan_role_arn, github_role_arn, state_bucket)
 
 # 2. the environment
 cd ../envs/dev

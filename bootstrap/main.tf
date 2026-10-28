@@ -90,7 +90,11 @@ resource "aws_iam_openid_connect_provider" "github" {
   client_id_list = ["sts.amazonaws.com"]
 }
 
-data "aws_iam_policy_document" "github_assume" {
+# Two roles, so that whoever can open a pull request (and edit the workflow in
+# it) only ever gets read access:
+#   plan  - assumable from pull requests and main, read-only
+#   apply - assumable only from the "production" environment (required reviewers)
+data "aws_iam_policy_document" "github_assume_plan" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
@@ -102,23 +106,78 @@ data "aws_iam_policy_document" "github_assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # Only this repository: pull requests (plan) and the protected
-    # "production" environment (apply). Forks and other repos can't assume it.
+    # Only this repository. Fork pull requests get no OIDC token at all.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
         "repo:${var.github_repo}:pull_request",
-        "repo:${var.github_repo}:ref:refs/heads/main",
-        "repo:${var.github_repo}:environment:production",
+        "repo:${var.github_repo}:ref:refs/heads/main", # plan job on push to main
       ]
     }
   }
 }
 
+data "aws_iam_policy_document" "github_assume_apply" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    # A job that declares `environment: production` gets this subject instead
+    # of the ref-based one, so the reviewers' approval gates every assumption.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo}:environment:production"]
+    }
+  }
+}
+
+# ---------- plan role (read-only) ----------
+
+resource "aws_iam_role" "github_plan" {
+  name                 = "payhook-github-plan"
+  assume_role_policy   = data.aws_iam_policy_document.github_assume_plan.json
+  max_session_duration = 3600
+}
+
+resource "aws_iam_role_policy_attachment" "plan_read_only" {
+  role       = aws_iam_role.github_plan.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# ReadOnlyAccess already reads the state objects; the lock file is the only write.
+data "aws_iam_policy_document" "github_plan_state" {
+  statement {
+    sid       = "ReadState"
+    actions   = ["s3:ListBucket", "s3:GetObject"]
+    resources = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+  }
+  statement {
+    sid       = "StateLockFile"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.state.arn}/*.tflock"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_plan_state" {
+  name   = "payhook-state"
+  role   = aws_iam_role.github_plan.id
+  policy = data.aws_iam_policy_document.github_plan_state.json
+}
+
+# ---------- apply role ----------
+
 resource "aws_iam_role" "github" {
   name                 = "payhook-github-actions"
-  assume_role_policy   = data.aws_iam_policy_document.github_assume.json
+  assume_role_policy   = data.aws_iam_policy_document.github_assume_apply.json
   max_session_duration = 3600
 }
 
@@ -135,7 +194,7 @@ data "aws_iam_policy_document" "github_iam" {
     actions = [
       "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:UntagRole",
       "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
-      "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+      "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
       "iam:ListInstanceProfilesForRole", "iam:PassRole",
       "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:GetInstanceProfile",
       "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:TagInstanceProfile",
@@ -144,6 +203,19 @@ data "aws_iam_policy_document" "github_iam" {
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/payhook/*",
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:instance-profile/payhook/*",
     ]
+  }
+  # Managed policies may only be attached from this list (the app's instance
+  # role uses just the SSM one), so the role can't attach AdministratorAccess
+  # to a role it creates. Extend the list when a module needs another policy.
+  statement {
+    sid       = "AttachApprovedPolicies"
+    actions   = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/payhook/*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "iam:PolicyARN"
+      values   = ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"]
+    }
   }
   statement {
     sid       = "ServiceLinkedRoles"
