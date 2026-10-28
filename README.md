@@ -44,6 +44,10 @@ envs/dev                the environment that wires the modules together
 - **Deploys:** changing `image_tag` creates a new launch template version, and the Auto Scaling group replaces instances with `instance_refresh`: it launches the new instances first (100% minimum healthy, 200% ceiling, so even a one-instance group isn't taken down), and rolls back to the previous launch template version if the new ones fail their health checks (`auto_rollback`). Only changes that alter the launch template trigger it; the secrets are read at boot, so rotating them needs an instance refresh started by hand. The ALB's deregistration delay matches the app's graceful shutdown.
 - **Scaling:** target tracking at 60% average CPU, 1–3 instances in dev.
 
+### Known limitations
+
+- **The app connects as the RDS master user.** The password is read once at boot into a root-only `.env` file. RDS-managed rotation (every 7 days by default) changes the password in Secrets Manager but not in the running containers, so connections fail after a rotation until the instances are replaced (start an instance refresh). A separate least-privilege application user, with its own secret, would fix both and is not done yet.
+
 ### Trade-offs (and what production would change)
 
 | Here (dev, cheap) | Production |
@@ -51,7 +55,7 @@ envs/dev                the environment that wires the modules together
 | No NAT gateway: instances in public subnets, locked down by security groups | Private app subnets behind NAT, or VPC endpoints |
 | NATS JetStream runs on each instance (each instance's relay and worker share it; dedupe lives in Postgres) | A NATS cluster (or Synadia Cloud / EKS), so unconsumed messages survive losing an instance |
 | HTTP unless `certificate_arn` is set | ACM certificate, HTTP → HTTPS redirect (already supported) |
-| Single-AZ `db.t4g.micro`, 1-day backups, no deletion protection | Multi-AZ, longer retention, deletion protection (module defaults) |
+| Single-AZ `db.t4g.micro`, 1-day backups, no deletion protection | `multi_az = true`, longer retention, deletion protection (the module defaults to `multi_az = false` and `deletion_protection = true`; dev overrides the latter) |
 | AWS-managed KMS keys | Customer-managed keys where policy requires it |
 
 Accepted security-scanner findings are listed with reasons in [`.trivyignore`](.trivyignore).
