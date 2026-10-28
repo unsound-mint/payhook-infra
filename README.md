@@ -30,7 +30,7 @@ bootstrap/              one-time: S3 state bucket, GitHub OIDC provider, deploy 
 modules/network         VPC, public + private subnets in 2 AZs, routing
 modules/database        RDS PostgreSQL: private, encrypted, managed master password, forced TLS
 modules/app             ALB, Auto Scaling group, launch template, IAM, secrets, ALB log bucket
-modules/observability   CloudWatch alarms (5xx, unhealthy targets, p95 latency, DB CPU/storage, app errors) -> SNS
+modules/observability   CloudWatch alarms (5xx, unhealthy targets, no healthy targets, p95 latency, DB CPU/storage, app errors) -> SNS
 envs/dev                the environment that wires the modules together
 ```
 
@@ -56,7 +56,7 @@ envs/dev                the environment that wires the modules together
 | NATS JetStream runs on each instance (each instance's relay and worker share it; dedupe lives in Postgres) | A NATS cluster (or Synadia Cloud / EKS), so unconsumed messages survive losing an instance |
 | HTTP unless `certificate_arn` is set | ACM certificate, HTTP → HTTPS redirect (already supported) |
 | Single-AZ `db.t4g.micro`, 1-day backups, no deletion protection | `multi_az = true`, longer retention, deletion protection (the module defaults to `multi_az = false` and `deletion_protection = true`; dev overrides the latter) |
-| AWS-managed KMS keys | Customer-managed keys where policy requires it |
+| AWS-managed KMS keys (the alerts topic already uses a customer-managed one, which CloudWatch alarms require) | Customer-managed keys where policy requires it |
 
 Accepted security-scanner findings are listed with reasons in [`.trivyignore`](.trivyignore).
 

@@ -37,7 +37,7 @@ jobs:
           done
       - name: unit tests (mocked AWS provider)
         run: |
-          for m in network database app; do
+          for m in network database app observability; do
             terraform -chdir=modules/$m init -input=false
             terraform -chdir=modules/$m test
           done

@@ -1,8 +1,50 @@
 # Alarms for the signals that matter for a payments API, sent to an SNS topic.
 
+data "aws_caller_identity" "current" {}
+
+# The topic needs a customer-managed key: CloudWatch alarms can't publish to a
+# topic encrypted with the AWS-managed alias/aws/sns key, because that key's
+# policy can't be changed to allow cloudwatch.amazonaws.com.
+data "aws_iam_policy_document" "alerts_key" {
+  statement {
+    sid       = "AccountAdmin"
+    actions   = ["kms:*"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+  statement {
+    sid       = "CloudWatchAlarmsPublish"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    resources = ["*"]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+}
+
+resource "aws_kms_key" "alerts" {
+  description         = "${var.name} alerts topic"
+  enable_key_rotation = true
+  policy              = data.aws_iam_policy_document.alerts_key.json
+}
+
+resource "aws_kms_alias" "alerts" {
+  name          = "alias/${var.name}-alerts"
+  target_key_id = aws_kms_key.alerts.key_id
+}
+
 resource "aws_sns_topic" "alerts" {
   name              = "${var.name}-alerts"
-  kms_master_key_id = "alias/aws/sns"
+  kms_master_key_id = aws_kms_key.alerts.arn
 }
 
 resource "aws_sns_topic_subscription" "email" {
@@ -44,6 +86,24 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
   evaluation_periods  = 3
   threshold           = 0
   comparison_operator = "GreaterThanThreshold"
+  alarm_actions       = local.actions
+  ok_actions          = local.actions
+}
+
+# UnHealthyHostCount stays at 0 when there are no targets at all, so this
+# catches the total outage: no healthy instance behind the load balancer.
+resource "aws_cloudwatch_metric_alarm" "no_healthy_targets" {
+  alarm_name          = "${var.name}-no-healthy-targets"
+  alarm_description   = "No API instance is passing /readyz: the API is down."
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HealthyHostCount"
+  dimensions          = { LoadBalancer = var.alb_arn_suffix, TargetGroup = var.target_group_arn_suffix }
+  statistic           = "Minimum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
   alarm_actions       = local.actions
   ok_actions          = local.actions
 }
