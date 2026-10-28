@@ -1,5 +1,11 @@
 variable "name" {
-  type = string
+  description = "Prefix for resource names, e.g. payhook-dev."
+  type        = string
+}
+
+variable "environment" {
+  description = "Environment name. Anything other than \"dev\" must set certificate_arn: a payments API doesn't get plain HTTP."
+  type        = string
 }
 
 variable "vpc_id" {
@@ -49,6 +55,11 @@ variable "certificate_arn" {
   description = "ACM certificate for HTTPS. Empty = HTTP only (fine for a demo, not for real payments)."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.certificate_arn != "" || var.environment == "dev"
+    error_message = "certificate_arn is required outside the dev environment: without it the ALB serves plain HTTP."
+  }
 }
 
 variable "providers_list" {

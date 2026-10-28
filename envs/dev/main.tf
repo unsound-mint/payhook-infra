@@ -45,6 +45,7 @@ module "network" {
 module "app" {
   source            = "../../modules/app"
   name              = local.name
+  environment       = "dev"
   vpc_id            = module.network.vpc_id
   vpc_cidr          = module.network.vpc_cidr
   public_subnet_ids = module.network.public_subnet_ids

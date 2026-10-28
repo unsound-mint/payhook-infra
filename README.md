@@ -54,7 +54,7 @@ envs/dev                the environment that wires the modules together
 |---|---|
 | No NAT gateway: instances in public subnets, locked down by security groups | Private app subnets behind NAT, or VPC endpoints |
 | NATS JetStream runs on each instance (each instance's relay and worker share it; dedupe lives in Postgres) | A NATS cluster (or Synadia Cloud / EKS), so unconsumed messages survive losing an instance |
-| HTTP unless `certificate_arn` is set | ACM certificate, HTTP → HTTPS redirect (already supported) |
+| HTTP unless `certificate_arn` is set (only allowed for `environment = "dev"`; the app module rejects any other environment without a certificate) | ACM certificate, HTTP → HTTPS redirect (already supported) |
 | Single-AZ `db.t4g.micro`, 1-day backups, no deletion protection | `multi_az = true`, longer retention, deletion protection (the module defaults to `multi_az = false` and `deletion_protection = true`; dev overrides the latter) |
 | AWS-managed KMS keys (the alerts topic already uses a customer-managed one, which CloudWatch alarms require) | Customer-managed keys where policy requires it |
 

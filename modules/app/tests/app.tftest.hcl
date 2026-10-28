@@ -20,6 +20,7 @@ mock_provider "random" {}
 
 variables {
   name              = "test"
+  environment       = "dev"
   vpc_id            = "vpc-123"
   vpc_cidr          = "10.20.0.0/16"
   public_subnet_ids = ["subnet-a", "subnet-b"]
@@ -102,5 +103,25 @@ run "https_redirect_with_certificate" {
   assert {
     condition     = length(aws_lb_listener.https) == 1 && aws_lb_listener.http.default_action[0].type == "redirect"
     error_message = "with a certificate, HTTP should redirect to HTTPS"
+  }
+}
+
+run "certificate_required_outside_dev" {
+  command = plan
+  variables {
+    environment = "prod"
+  }
+  expect_failures = [var.certificate_arn]
+}
+
+run "prod_with_certificate_is_accepted" {
+  command = plan
+  variables {
+    environment     = "prod"
+    certificate_arn = "arn:aws:acm:eu-central-1:123456789012:certificate/abc"
+  }
+  assert {
+    condition     = length(aws_lb_listener.https) == 1
+    error_message = "a prod environment with a certificate should serve HTTPS"
   }
 }
