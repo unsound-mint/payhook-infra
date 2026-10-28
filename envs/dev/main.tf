@@ -50,6 +50,7 @@ module "app" {
   vpc_cidr          = module.network.vpc_cidr
   public_subnet_ids = module.network.public_subnet_ids
   image_tag         = var.image_tag
+  ami_id            = var.ami_id
   instance_type     = var.instance_type
   certificate_arn   = var.certificate_arn
 

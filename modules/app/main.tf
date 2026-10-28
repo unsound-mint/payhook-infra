@@ -3,9 +3,15 @@
 
 data "aws_region" "current" {}
 
-# Latest Amazon Linux 2023 AMI, resolved at plan time from AWS's public SSM parameter.
+# Latest Amazon Linux 2023 AMI, resolved at plan time from AWS's public SSM
+# parameter. Skipped when ami_id pins one.
 data "aws_ssm_parameter" "al2023" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+  count = var.ami_id == "" ? 1 : 0
+  name  = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+}
+
+locals {
+  ami_id = var.ami_id != "" ? var.ami_id : data.aws_ssm_parameter.al2023[0].value
 }
 
 # ---------- security groups ----------
@@ -178,7 +184,7 @@ resource "aws_cloudwatch_log_group" "app" {
 
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.name}-"
-  image_id      = data.aws_ssm_parameter.al2023.value
+  image_id      = local.ami_id
   instance_type = var.instance_type
 
   vpc_security_group_ids = [aws_security_group.app.id]
@@ -213,6 +219,7 @@ resource "aws_launch_template" "app" {
     webhook_secrets_ssm = aws_ssm_parameter.webhook_secrets.name
     callback_secret_ssm = aws_ssm_parameter.callback_secret.name
     compose_version     = var.compose_version
+    compose_sha256      = var.compose_sha256
   }))
 
   tag_specifications {

@@ -87,4 +87,6 @@ curl "$(terraform output -raw api_url)/healthz"
 terraform destroy
 ```
 
+Instances launch the latest Amazon Linux 2023 AMI as of plan time, so a new AWS release appears as a launch template change and rolls the instances on the next apply; set `ami_id` to pin one and upgrade on purpose. Outside dev, `image_tag` must be a commit SHA or version tag (dev defaults to the moving `main` tag), and the Docker Compose binary installed at boot is checked against `compose_sha256`.
+
 The app image comes from `ghcr.io/unsound-mint/payhook` (built by payhook's CI). Dev runs about $0.06 an hour: ALB, a t3.small and a db.t4g.micro.
